@@ -1,4 +1,4 @@
-# GitHub Commit Bot 🚀
+# GitHub Commit Bot 🚀 
 
 **⚠️ DISCLAIMER: This project is strictly for EDUCATIONAL PURPOSES only. Do not misuse this script.**
 
