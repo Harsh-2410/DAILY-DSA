@@ -1,81 +1,163 @@
-const jsonfile = require('jsonfile');
-const moment = require('moment');
-const simpleGit = require('simple-git');
-const axios = require('axios');
+const { execSync } = require("child_process");
+const fs = require("fs");
 
-const FILE_PATH = './data.json';
-const USERNAME = 'your-github-username'; // 🔴 change this
+const STATE_FILE = "commit_state.json";
 
-async function getAccountCreationDate(username) {
-    const url = `https://api.github.com/users/${username}`;
-    const res = await axios.get(url, { headers: { 'User-Agent': 'commit-bot' } });
-    return res.data.created_at; // e.g. "2021-05-10T12:34:56Z"
+// ---------------- Utilities ----------------
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-async function makeCommits() {
-    const createdAt = await getAccountCreationDate(USERNAME);
-
-    // Parse in UTC to avoid timezone shift
-    const createdDate = moment.utc(createdAt).add(1, 'day');
-    const today = moment.utc();
-
-    // Ensure at least 1 year of commits
-    const minStart = moment.utc(today).subtract(1, 'year');
-    const startDate = createdDate.isAfter(minStart) ? createdDate : minStart;
-
-    const days = today.diff(startDate, 'days');
-    console.log(`📅 Account created on: ${moment.utc(createdAt).format("YYYY-MM-DD")}`);
-    console.log(`✅ Making commits for ${days} days (from ${startDate.format('YYYY-MM-DD')})`);
-
-    const git = simpleGit();
-
-    const makecommit = (n) => {
-        if (n < 0) return git.push();
-
-        const DATE = moment.utc(startDate).add(n, 'days');
-
-        // Random number of commits per day (1–3)
-        const commitsToday = Math.floor(Math.random() * 3) + 1;
-
-        const doCommits = (count) => {
-            if (count === 0) return makecommit(--n);
-
-            // Pick a random time within the day
-            const randomHour = Math.floor(Math.random() * 24);
-            const randomMinute = Math.floor(Math.random() * 60);
-            const commitDate = DATE.clone().hour(randomHour).minute(randomMinute);
-
-            const data = { date: commitDate.format() };
-            jsonfile.writeFile(FILE_PATH, data, () => {
-                git.add([FILE_PATH])
-                    .commit(commitDate.format(), { '--date': commitDate.toISOString() }, () => doCommits(count - 1));
-            });
-        };
-
-        console.log(`📌 ${commitsToday} commit(s) on ${DATE.format('YYYY-MM-DD')}`);
-        doCommits(commitsToday);
-    };
-
-    makecommit(days);
+// Load state (for backfill tracking)
+function loadState() {
+  if (!fs.existsSync(STATE_FILE)) return {};
+  return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
 }
 
-// 🔥 Reverse all commits: start repo fresh with a single initial commit
-async function reverseAllCommits() {
-    const git = simpleGit();
-    await git.raw(['checkout', '--orphan', 'latest_branch']); // new orphan branch
-    await git.raw(['add', '-A']);
-    await git.commit('🔄 Reset history: fresh start');
-    await git.raw(['branch', '-D', 'main']);  // delete old main
-    await git.raw(['branch', '-m', 'main']);  // rename orphan to main
-    await git.push('origin', 'main', ['--force']);
-    console.log("✅ All commits have been reversed. Repo history wiped clean.");
+function saveState(state) {
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
-// 🟢 Run the bot
-const MODE = process.argv[2]; // "commit" or "reverse"
+// ---------------- Git Operations ----------------
+function makeCommit(commitTime) {
+  const dateStr = commitTime.toISOString();
+  execSync(`echo "Commit at ${dateStr}" >> commits.txt`);
+  execSync("git add commits.txt");
+  execSync(`git commit -m "Commit at ${dateStr}" --date="${dateStr}"`);
+  console.log(`✅ Commit made at ${dateStr}`);
+}
 
-if (MODE === 'reverse') {
-    reverseAllCommits().catch(err => console.error(err));
-} else {
-    makeCommits().catch(err => console.error(err));
+// ---------------- Daily Commits ----------------
+function scheduleTodayCommits() {
+  const commitCount = randomInt(1, 15);
+  console.log(`📅 Scheduling ${commitCount} commits for today...`);
+
+  const now = new Date();
+
+  // Generate all random times for today
+  const times = [];
+  for (let i = 0; i < commitCount; i++) {
+    const commitTime = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      randomInt(0, 23),
+      randomInt(0, 59),
+      randomInt(0, 59)
+    );
+    times.push(commitTime);
+  }
+
+  // Sort times in ascending order
+  times.sort((a, b) => a - b);
+
+  // Show all planned commit times
+  console.log("🕒 Today's commit schedule:");
+  times.forEach((t, i) => {
+    console.log(`   ${i + 1}. ${t.toLocaleString()}`);
+  });
+
+  // Schedule commits
+  for (const commitTime of times) {
+    const delay = commitTime.getTime() - Date.now();
+    if (delay > 0) {
+      setTimeout(() => makeCommit(commitTime), delay);
+    }
+  }
+}
+
+// Run daily scheduling loop
+function scheduleDaily() {
+  scheduleTodayCommits();
+
+  const now = new Date();
+  const tomorrow = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + 1,
+    0, 0, 5
+  );
+  const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+  setTimeout(() => scheduleDaily(), msUntilMidnight);
+}
+
+// ---------------- Backfill ----------------
+function backfill() {
+  const state = loadState();
+  if (state.backfilled) {
+    console.log("⚠️ Backfilling not possible: already done.");
+    return;
+  }
+
+  console.log("⏳ Backfilling past year with random commits...");
+  const now = new Date();
+
+  for (let d = 365; d >= 1; d--) {
+    const day = new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
+    const commitCount = randomInt(0, 5); // random commits for natural look
+    const times = [];
+
+    for (let i = 0; i < commitCount; i++) {
+      const commitTime = new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        randomInt(0, 23),
+        randomInt(0, 59),
+        randomInt(0, 59)
+      );
+      times.push(commitTime);
+    }
+
+    // Sort and show commit times for the day
+    times.sort((a, b) => a - b);
+    if (times.length > 0) {
+      console.log(`🕒 Backfill for ${day.toLocaleDateString()}:`);
+      times.forEach((t, i) => {
+        console.log(`   ${i + 1}. ${t.toLocaleString()}`);
+        makeCommit(t);
+      });
+    }
+  }
+
+  state.backfilled = true;
+  saveState(state);
+  console.log("✅ Backfilling completed!");
+}
+
+// ---------------- Reverse Commits ----------------
+function reverse() {
+  console.log("⚠️ Reversing commits...");
+  execSync("git checkout --orphan latest_branch");
+  execSync("git add -A");
+  execSync('git commit -m "🔄 Reset history: fresh start"');
+  execSync("git branch -D main || true");
+  execSync("git branch -m main");
+  execSync("git push origin main --force");
+  console.log("✅ Repo history wiped clean.");
+}
+
+// ---------------- Stop Auto Commits ----------------
+function stop() {
+  console.log("🛑 Stopping auto commits...");
+  process.exit(0);
+}
+
+// ---------------- MAIN ----------------
+const arg = process.argv[2];
+
+switch (arg) {
+  case "--backfill":
+    backfill();
+    break;
+  case "--reverse":
+    reverse();
+    break;
+  case "--stop":
+    stop();
+    break;
+  default:
+    console.log("▶️ Starting daily commit scheduler...");
+    scheduleDaily();
 }
