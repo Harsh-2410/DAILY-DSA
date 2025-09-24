@@ -1,6 +1,3 @@
-Here’s the complete **README.md** file content for your GitHub Commit Bot project:
-
-````markdown
 # GitHub Commit Bot 🚀
 
 **⚠️ DISCLAIMER: This project is strictly for EDUCATIONAL PURPOSES only. Do not misuse this script.**
