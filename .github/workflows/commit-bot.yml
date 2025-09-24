@@ -38,7 +38,7 @@ jobs:
 
       # 5️⃣ Run the commit bot script
       - name: Run commit script
-        run: node text-commit.js
+        run: node test-commit.js
 
       # 6️⃣ Push commits using GITHUB_TOKEN
       - name: Push commits
