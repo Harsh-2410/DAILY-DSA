@@ -2,20 +2,22 @@ name: Auto Commit Bot
 
 on:
   schedule:
-    - cron: "0 0 * * *"   # Runs every day at 00:00 UTC
-  workflow_dispatch:       # Allows manual trigger from Actions tab
+    - cron: "30 18 * * *"   # Runs daily at 18:30 UTC = 00:00 IST
+  workflow_dispatch:         # Allows manual trigger
 
 permissions:
-  contents: write   # ✅ Gives GITHUB_TOKEN write access to push commits
+  contents: write   # ✅ GITHUB_TOKEN write access
 
 jobs:
   auto-commit:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the repo
+      # 1️⃣ Checkout the repo with full history
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       # 2️⃣ Setup Node.js
       - name: Setup Node.js
@@ -23,7 +25,7 @@ jobs:
         with:
           node-version: 18
 
-      # 3️⃣ Install dependencies (if package.json exists)
+      # 3️⃣ Install dependencies if package.json exists
       - name: Install dependencies
         run: |
           if [ -f package.json ]; then
@@ -36,12 +38,13 @@ jobs:
           git config user.name "Harsh-2410"
           git config user.email "harshankittiwary@gmail.com"
 
-      # 5️⃣ Run the commit bot script
+      # 5️⃣ Run commit script
       - name: Run commit script
         run: node index.js
 
-      # 6️⃣ Push commits using GITHUB_TOKEN
+      # 6️⃣ Push commits
       - name: Push commits
         run: |
+          git checkout main
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git push origin main
